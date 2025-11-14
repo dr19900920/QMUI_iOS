@@ -520,8 +520,19 @@ QMUISynthesizeBOOLProperty(qmui_shouldIgnoreUIKVCAccessProhibited, setQmui_shoul
                 originSelectorIMP = (id (*)(id, SEL, NSExceptionName name, NSString *, ...))originalIMPProvider();
                 va_list args;
                 va_start(args, format);
-                NSString *reason =  [[NSString alloc] initWithFormat:format arguments:args];
-                originSelectorIMP(selfObject, originCMD, raise, reason);
+                NSString *reason = [[NSString alloc] initWithFormat:format arguments:args];
+                BOOL shouldCallSuper = YES;
+                // 判断是否使用了 Liquid Glass
+                if (QMUIHelper.isUsedLiquidGlass) {
+                    // QMUIButton使用约束布局在vc.navigationItem.titleView上时可能会导致闪退
+                    if (raise == NSInternalInconsistencyException && [reason hasPrefix:@"The layout constraints still need update after sending -updateConstraints to <_UINavigationBarTitleControl"]) {
+                        QMUILogWarn(@"NSObject (QMUI)", @"iOS 26.0会因约束问题触发QMUIButton使用约束布局在vc.navigationItem.titleView上时可能会导致闪退");
+                        shouldCallSuper = NO;
+                    }
+                }
+                if (shouldCallSuper) {
+                    originSelectorIMP(selfObject, originCMD, raise, reason);
+                }
                 va_end(args);
             };
         });
