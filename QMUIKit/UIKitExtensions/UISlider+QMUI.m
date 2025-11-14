@@ -42,9 +42,22 @@ QMUISynthesizeIdCopyProperty(qmui_stepDidChangeBlock, setQmui_stepDidChangeBlock
         slider = [self qmui_valueForKey:@"_visualElement"];
     }
     if (!slider) return nil;
-
-    UIView *thumbView = [slider qmui_valueForKey:@"thumbView"] ?: [slider qmui_valueForKey:@"innerThumbView"];
-    return thumbView;
+// 判断是否使用了液体玻璃，如果使用了，则返回 _UILiquidLensView 的 subviews 中的 UIImageView
+    if (QMUIHelper.isUsedLiquidGlass) {
+        for (UIView *subview in slider.subviews) {
+            if ([subview isKindOfClass:NSClassFromString(@"_UILiquidLensView")]) {
+                for (UIImageView *imageView in subview.subviews) {
+                    if ([imageView isKindOfClass:UIImageView.class]) {
+                        return imageView;
+                    }
+                }
+            }
+        }
+        return nil;
+    } else {
+        UIView *thumbView = [slider qmui_valueForKey:@"thumbView"] ?: [slider qmui_valueForKey:@"innerThumbView"];
+        return thumbView;
+    }
 }
 
 static char kAssociatedObjectKey_trackHeight;
@@ -196,6 +209,8 @@ static char kAssociatedObjectKey_numberOfSteps;
             [self.qmuisl_stepControls removeObjectAtIndex:i];
         }
     }
+    [self qmuisl_updateStepControls];
+    
     if (self.qmui_stepControlConfiguration) {
         [self.qmuisl_stepControls enumerateObjectsUsingBlock:^(QMUISliderStepControl * _Nonnull obj, NSUInteger idx, BOOL * _Nonnull stop) {
             self.qmui_stepControlConfiguration(self, obj, idx);
@@ -243,6 +258,8 @@ static char kAssociatedObjectKey_stepControlConfiguration;
     
     NSUInteger step = [slider qmuisl_stepWithValue:slider.value];
     if (step != slider.qmuisl_precedingStep) {
+        [self qmuisl_updateStepControls];
+        
         if (slider.qmui_stepDidChangeBlock) {
             slider.qmui_stepDidChangeBlock(slider, slider.qmuisl_precedingStep);
         }
@@ -263,6 +280,20 @@ static char kAssociatedObjectKey_stepControlConfiguration;
     return step;
 }
 
+/**
+ * 更新 stepControl 的显隐和事件响应
+ */
+- (void)qmuisl_updateStepControls {
+    NSInteger step = self.qmui_step;
+    [self.qmuisl_stepControls enumerateObjectsUsingBlock:^(QMUISliderStepControl * _Nonnull obj, NSUInteger idx, BOOL * _Nonnull stop) {
+        obj.userInteractionEnabled = idx != step;// 让 stepControl 不要影响 thumbView 的事件
+        obj.indicator.hidden = idx == step;
+    }];
+}
+
+/**
+ * 如果 slider 的 step 大于 1，则需要 swizzle 一些方法来支持 stepControl
+ */
 - (void)qmuisl_swizzleForStepsIfNeeded {
     [QMUIHelper executeBlock:^{
         OverrideImplementation([UISlider class], @selector(layoutSubviews), ^id(__unsafe_unretained Class originClass, SEL originCMD, IMP (^originalIMPProvider)(void)) {
@@ -374,13 +405,7 @@ static char kAssociatedObjectKey_stepControlConfiguration;
     if (!count) return;
     
     // 根据当前 thumbView 的位置，控制重叠的那个 stepControl 的事件响应和显隐，由于 slider 可能是 continuous 的，所以这段逻辑必须每次 layout 都调用，不能放在 layoutCachedKey 的保护里
-    CGRect thumbRect = self.qmui_thumbView.frame;
     CGRect trackRect = [self trackRectForBounds:self.bounds];
-    NSUInteger step = round((CGRectGetMidX(thumbRect) - CGRectGetMinX(trackRect)) / CGRectGetWidth(trackRect) * (count - 1));
-    [self.qmuisl_stepControls enumerateObjectsUsingBlock:^(QMUISliderStepControl * _Nonnull obj, NSUInteger idx, BOOL * _Nonnull stop) {
-        obj.userInteractionEnabled = idx != step;// 让 stepControl 不要影响 thumbView 的事件
-        obj.indicator.hidden = idx == step;
-    }];
     
     NSString *layoutCachedKey = [NSString stringWithFormat:@"%.0f-%@", CGRectGetWidth(trackRect), @(count)];
     if ([self.qmuisl_layoutCachedKey isEqualToString:layoutCachedKey]) return;
